@@ -1,0 +1,64 @@
+index.html
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>외래 통계 자동 분석</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    h1, h2 { color: #333; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #999; padding: 8px; text-align: center; }
+    th { background: #eee; }
+    input[type="file"] { margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h1>외래 통계 자동 분석</h1>
+  <p>다음 3개 파일을 업로드하세요. 파일명은 아래와 같이 정확히 맞춰주세요:</p>
+  <ul>
+    <li><strong>내원경로.xlsx</strong> - 신환 경로 정보</li>
+    <li><strong>외래환자.xlsx</strong> - 일일 집계 파일 (연령, 시간대, 진료구분 포함)</li>
+    <li><strong>일일집계.xlsx</strong> - 수납액 정보 (M열)</li>
+  </ul>
+  <input type="file" id="file1" accept=".xlsx" />
+  <input type="file" id="file2" accept=".xlsx" />
+  <input type="file" id="file3" accept=".xlsx" />
+  <button onclick="handleFiles()">분석 시작</button>
+
+  <div id="output"></div>
+
+  <script>
+    let files = {};
+
+    function handleFiles() {
+      const fileInputs = [file1, file2, file3];
+      files = {};
+
+      fileInputs.forEach(input => {
+        if (!input.files.length) return alert("모든 파일을 업로드해주세요.");
+        const reader = new FileReader();
+        const filename = input.files[0].name;
+
+        reader.onload = function(e) {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          files[filename.replace('.xlsx','')] = workbook;
+
+          if (Object.keys(files).length === 3) {
+            analyzeData(files);
+          }
+        };
+        reader.readAsArrayBuffer(input.files[0]);
+      });
+    }
+
+    function analyzeData({ 내원경로, 외래환자, 일일집계 }) {
+      const output = document.getElementById("output");
+      output.innerHTML = `<h2>분석 결과 요약</h2><p>기능 구현 예정: 환자구분, 경로별매출, 연령/성별 분석 등</p>`;
+    }
+  </script>
+</body>
+</html>
