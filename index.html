@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>외래 통계 자동 계산 도구</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      padding: 30px;
+      background: #fafafa;
+      color: #2c3e50;
+      max-width: 1200px;
+      margin: auto;
+    }
+    h1 { font-size: 24px; margin-bottom: 20px; }
+    .section { margin-top: 40px; }
+    input[type="file"] { margin-bottom: 15px; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 15px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 6px;
+      text-align: center;
+    }
+    th { background-color: #eee; }
+    .highlight { color: red; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>외래 통계 자동 계산 도구</h1>
+
+  <div>
+    <p>아래 세 개의 엑셀 파일을 업로드하세요:</p>
+    <ul>
+      <li><strong>내원경로.xlsx</strong> (신환 경로 분석용)</li>
+      <li><strong>외래환자.xlsx</strong> (일일집계 기반 인원/성별/연령)</li>
+      <li><strong>일일집계.xlsx</strong> (M열 수납액 기준 분석)</li>
+    </ul>
+    <input type="file" id="file1" accept=".xlsx" /> ← 내원경로.xlsx<br />
+    <input type="file" id="file2" accept=".xlsx" /> ← 외래환자.xlsx<br />
+    <input type="file" id="file3" accept=".xlsx" /> ← 일일집계.xlsx<br />
+    <button onclick="processFiles()">통계 생성</button>
+  </div>
+
+  <div id="output" class="section"></div>
+
+  <script>
+    function processFiles() {
+      const files = [
+        document.getElementById('file1').files[0],
+        document.getElementById('file2').files[0],
+        document.getElementById('file3').files[0],
+      ];
+      if (files.includes(undefined)) {
+        alert("세 개의 파일을 모두 업로드해 주세요.");
+        return;
+      }
+
+      const readers = files.map(file => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          resolve(workbook);
+        };
+        reader.onerror = reject;
+        reader.readAsArrayBuffer(file);
+      }));
+
+      Promise.all(readers).then(workbooks => {
+        const [routeWb, dailyWb, receiptWb] = workbooks;
+
+        const output = document.getElementById("output");
+        output.innerHTML = "<h2>✅ 통계 출력 (개발 중)</h2><p>데이터를 성공적으로 불러왔습니다. 추후 여기에 자동 계산 결과가 표시됩니다.</p>";
+
+        // 예: 각 시트 데이터 확인용 출력 (개발 중)
+        const routeSheet = XLSX.utils.sheet_to_json(routeWb.Sheets[routeWb.SheetNames[0]]);
+        const dailySheet = XLSX.utils.sheet_to_json(dailyWb.Sheets[dailyWb.SheetNames[0]]);
+        const receiptSheet = XLSX.utils.sheet_to_json(receiptWb.Sheets[receiptWb.SheetNames[0]]);
+
+        output.innerHTML += `<p><strong>내원경로 시트 행 수:</strong> ${routeSheet.length}</p>`;
+        output.innerHTML += `<p><strong>외래환자 시트 행 수:</strong> ${dailySheet.length}</p>`;
+        output.innerHTML += `<p><strong>수납 시트 행 수:</strong> ${receiptSheet.length}</p>`;
+
+        // 이후 JavaScript로 통계 로직 삽입 예정
+        output.innerHTML += `<p style="color:gray;">(통계 계산 로직은 계속 추가 예정입니다)</p>`;
+      }).catch(err => {
+        alert("파일 처리 중 오류 발생: " + err);
+      });
+    }
+  </script>
+</body>
+</html>
