@@ -1,0 +1,75 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>외래 통계 자동 계산 (테스트용)</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 1200px; margin: auto; }
+    h1 { color: #2c3e50; text-align: center; }
+    input[type=file] { margin: 10px 0; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background-color: #f0f0f0; }
+    .section { margin-top: 40px; }
+  </style>
+</head>
+<body>
+  <h1>외래 통계 자동 계산 도구 (테스트 버전)</h1>
+  <p>엑셀 파일 3개를 업로드하세요: <strong>내원경로.xlsx, 외래환자.xlsx, 일일집계.xlsx</strong></p>
+  <input type="file" id="fileInput" multiple />
+  <div id="output"></div>
+
+  <script>
+    document.getElementById('fileInput').addEventListener('change', handleFiles, false);
+
+    function handleFiles(e) {
+      const files = e.target.files;
+      const fileMap = {};
+      for (const file of files) {
+        if (file.name.includes("내원경로")) fileMap.route = file;
+        else if (file.name.includes("외래환자")) fileMap.patient = file;
+        else if (file.name.includes("일일집계")) fileMap.payment = file;
+      }
+
+      if (!fileMap.route || !fileMap.patient || !fileMap.payment) {
+        alert("3개의 파일(내원경로, 외래환자, 일일집계)을 모두 업로드해주세요.");
+        return;
+      }
+
+      Promise.all([
+        readExcel(fileMap.route),
+        readExcel(fileMap.patient),
+        readExcel(fileMap.payment)
+      ]).then(([routeData, patientData, paymentData]) => {
+        document.getElementById('output').innerHTML = `
+          <div class="section"><h2>✅ 파일 업로드 완료</h2>
+            <ul>
+              <li>내원경로: ${fileMap.route.name}</li>
+              <li>외래환자: ${fileMap.patient.name}</li>
+              <li>일일집계: ${fileMap.payment.name}</li>
+            </ul>
+            <p style="color:green">※ 통계 계산 기능은 지금 반영 중입니다.</p>
+          </div>
+        `;
+      });
+    }
+
+    function readExcel(file) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: "array" });
+          const firstSheet = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheet];
+          const json = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+          resolve(json);
+        };
+        reader.readAsArrayBuffer(file);
+      });
+    }
+  </script>
+</body>
+</html>
