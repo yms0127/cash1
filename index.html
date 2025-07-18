@@ -5,7 +5,7 @@
 <title>외래 통계 자동 계산 도구</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
-  body { font-family: Arial, sans-serif; margin: 20px; max-width: 1000px; }
+  body { font-family: Arial, sans-serif; margin: 20px; max-width: 1100px; }
   h1 { color: #2c3e50; }
   label { display: block; margin-top: 15px; }
   table { border-collapse: collapse; margin-top: 20px; width: 100%; }
@@ -99,6 +99,13 @@
     return `${hour.toString().padStart(2,'0')}:00~${hour.toString().padStart(2,'0')}:59`;
   }
 
+  // 주소에서 시/군/구까지만 추출 (띄어쓰기 기준 최대 3단어)
+  function extractSiGunGu(fullAddr) {
+    if (!fullAddr) return '무응답';
+    const parts = fullAddr.trim().split(' ');
+    return parts.slice(0, 3).join(' ');
+  }
+
   function createTable(title, headers, data) {
     let html = `<div class="section"><h2>${title}</h2><table><thead><tr>`;
     headers.forEach(h => html += `<th>${h}</th>`);
@@ -121,16 +128,21 @@
       return;
     }
 
-    // 내원경로 맵 생성: 차트번호 -> 내원경로
+    // 1. 내원경로 맵: 차트번호 -> { route, addr }
+    // 주소는 C열(2)와 D열(3) 합쳐서 시/군/구 단위만 추출
     const naewonMap = new Map();
     for(let i=1; i<naewon.length; i++) {
       const row = naewon[i];
       const chartNum = row[1] ? row[1].toString().trim() : '';
       const route = row[0] ? row[0].toString().trim() : '무응답';
-      if(chartNum) naewonMap.set(chartNum, route);
+      let addrRaw = '';
+      if(row[2]) addrRaw += row[2].toString().trim() + ' ';
+      if(row[3]) addrRaw += row[3].toString().trim();
+      const addr = extractSiGunGu(addrRaw);
+      if(chartNum) naewonMap.set(chartNum, { route, addr });
     }
 
-    // 외래환자 맵: 차트번호 -> 수납액(합계)
+    // 2. 외래환자 맵: 차트번호 -> 수납액 합계
     const payMap = new Map();
     for(let i=1; i<oerae.length; i++) {
       const row = oerae[i];
@@ -139,7 +151,7 @@
       if(chartNum) payMap.set(chartNum, (payMap.get(chartNum) || 0) + pay);
     }
 
-    // 일일집계 맵: 차트번호 -> {jumin, patientType, dateStr, hour}
+    // 3. 일일집계 맵: 차트번호 -> { jumin, patientType, dateStr, hour }
     const dailyMap = new Map();
     for(let i=1; i<daily.length; i++) {
       const row = daily[i];
@@ -149,39 +161,49 @@
       const patientType = (patientTypeRaw === '신환' || patientTypeRaw === '90일초진') ? patientTypeRaw : '재진';
       const dateStr = row[29] ? row[29].toString().trim() : '';
       let hour = null;
-      if(dateStr.length >= 10) {
-        const hr = parseInt(dateStr.substring(8,10));
-        hour = hr < 9 ? 9 : (hr > 19 ? 19 : hr);
+      if(dateStr) {
+        if (/^\d{14}$/.test(dateStr)) {
+          hour = parseInt(dateStr.substring(8,10));
+        } else if(dateStr.length >= 13) {
+          hour = parseInt(dateStr.substring(11,13));
+        }
+        if(hour !== null) {
+          if(hour < 9) hour = 9;
+          else if(hour > 19) hour = 19;
+        }
       }
       if(chartNum) dailyMap.set(chartNum, { jumin, patientType, dateStr, hour });
     }
 
-    // 저장1: 내원경로 + 연령대 + 성별 + 수납액 집계
+    // === 저장1: 주소+내원경로+연령대+성별별 수납액 합계 ===
     const stat1 = {};
     payMap.forEach((pay, chartNum) => {
-      const route = naewonMap.get(chartNum) || '무응답';
-      const d = dailyMap.get(chartNum);
-      if(!d) return;
-      const gender = getGender(d.jumin);
-      const age = calcAgeFromJumin(d.jumin);
+      const naewonInfo = naewonMap.get(chartNum) || { route:'무응답', addr:'무응답' };
+      const jumin = dailyMap.get(chartNum)?.jumin || '';
+      const gender = getGender(jumin);
+      const age = calcAgeFromJumin(jumin);
       const ageGrp = ageGroup(age);
-      if(!stat1[route]) stat1[route] = {};
-      if(!stat1[route][ageGrp]) stat1[route][ageGrp] = { 남:0, 여:0 };
-      stat1[route][ageGrp][gender] += pay;
+      if(!stat1[naewonInfo.addr]) stat1[naewonInfo.addr] = {};
+      if(!stat1[naewonInfo.addr][naewonInfo.route]) stat1[naewonInfo.addr][naewonInfo.route] = {};
+      if(!stat1[naewonInfo.addr][naewonInfo.route][ageGrp]) stat1[naewonInfo.addr][naewonInfo.route][ageGrp] = { 남:0, 여:0 };
+      stat1[naewonInfo.addr][naewonInfo.route][ageGrp][gender] += pay;
     });
     const stat1Rows = [];
-    for(const route in stat1) {
-      for(const ageGrp in stat1[route]) {
-        stat1Rows.push([
-          route,
-          ageGrp,
-          stat1[route][ageGrp].남.toLocaleString(),
-          stat1[route][ageGrp].여.toLocaleString()
-        ]);
+    for(const addr in stat1) {
+      for(const route in stat1[addr]) {
+        for(const ageGrp in stat1[addr][route]) {
+          stat1Rows.push([
+            addr,
+            route,
+            ageGrp,
+            stat1[addr][route][ageGrp].남.toLocaleString(),
+            stat1[addr][route][ageGrp].여.toLocaleString()
+          ]);
+        }
       }
     }
 
-    // 저장2: 신환 기준 최초 내원 수납액 및 총 매출 계산
+    // === 저장2: 신환 기준 최초 내원 수납액 및 총 매출 계산 ===
     const firstPayMap = new Map();
     const totalPayMap = new Map();
     dailyMap.forEach((d, chartNum) => {
@@ -192,10 +214,9 @@
       }
       totalPayMap.set(chartNum, (totalPayMap.get(chartNum) || 0) + (payMap.get(chartNum) || 0));
     });
-
     const stat2 = {};
     firstPayMap.forEach((pay, chartNum) => {
-      const route = naewonMap.get(chartNum) || '무응답';
+      const route = naewonMap.get(chartNum)?.route || '무응답';
       if(!stat2[route]) stat2[route] = { 수:0, 매출:0, 수납액:0 };
       stat2[route].수 += 1;
       stat2[route].매출 += totalPayMap.get(chartNum) || 0;
@@ -211,7 +232,7 @@
       ]);
     }
 
-    // 저장3: 시간대별 연령대별, 성별 내원 수
+    // === 저장3: 시간대별 연령대별 성별 내원 수 ===
     const stat3 = {};
     dailyMap.forEach((d, chartNum) => {
       const gender = getGender(d.jumin);
@@ -234,7 +255,7 @@
       }
     }
 
-    // 저장4: 환자구분별 남여 인원수 (중복 차트번호 1회 집계)
+    // === 저장4: 환자구분별 남여 인원수 (중복 차트번호 1회 집계) ===
     const patientMap = new Map();
     dailyMap.forEach((d, chartNum) => {
       const gender = getGender(d.jumin);
@@ -255,7 +276,7 @@
 
     // 결과 출력
     let html = '';
-    html += createTable('저장1: 내원경로별 연령대별 성별 수납액', ['내원경로', '연령대', '남 수납액', '여 수납액'], stat1Rows);
+    html += createTable('저장1: 주소별 내원경로별 연령대별 성별 수납액', ['주소(시/군/구)', '내원경로', '연령대', '남 수납액', '여 수납액'], stat1Rows);
     html += createTable('저장2: 신환 내원경로별 신환 수 및 매출액/수납액', ['내원경로', '신환 수', '총 매출액', '수납액'], stat2Rows);
     html += createTable('저장3: 시간대별 연령대별 성별 내원 수', ['시간대', '연령대', '남 내원 수', '여 내원 수'], stat3Rows);
     html += createTable('저장4: 환자구분별 성별 인원수', ['환자구분', '남', '여', '무응답', '합계'], stat4Rows);
