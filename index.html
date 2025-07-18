@@ -14,7 +14,12 @@
 </head>
 <body>
   <h2>연령별 수납액 통계</h2>
-  <input type="file" id="fileInput" accept=".xlsx" />
+  <p>엑셀 파일 3개를 업로드하세요: <strong>내원경로.xlsx, 외래환자.xlsx, 일일집계.xlsx</strong></p>
+  <input type="file" id="file1" accept=".xlsx" /> ← 내원경로.xlsx<br>
+  <input type="file" id="file2" accept=".xlsx" /> ← 외래환자.xlsx<br>
+  <input type="file" id="file3" accept=".xlsx" /> ← 일일집계.xlsx<br>
+  <button id="process">통계 생성</button>
+
   <table id="resultTable" style="display:none">
     <thead>
       <tr>
@@ -26,52 +31,62 @@
   </table>
 
 <script>
-  document.getElementById('fileInput').addEventListener('change', function(e) {
-    const reader = new FileReader();
-    reader.onload = function(e) {
-      const data = new Uint8Array(e.target.result);
-      const workbook = XLSX.read(data, { type: 'array' });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json(sheet, { header: 1 }); // 2차원 배열로 가져옴
+  document.getElementById('process').addEventListener('click', function() {
+    const files = [
+      document.getElementById('file1').files[0],
+      document.getElementById('file2').files[0],
+      document.getElementById('file3').files[0]
+    ];
 
-      const rows = json.filter(r => r.length >= 3); // 최소 열 3개 필요 (성별, 나이, 수납액)
+    if (files.some(f => !f)) {
+      alert("3개의 파일을 모두 업로드해주세요.");
+      return;
+    }
 
-      const result = {
-        '10대': 0, '20대': 0, '30대': 0, '40대': 0,
-        '50대': 0, '60대': 0, '70대': 0, '80대': 0
-      };
+    Promise.all(files.map(f => f.arrayBuffer().then(buf => XLSX.read(new Uint8Array(buf), { type: 'array' }))))
+      .then(([file1WB, file2WB, file3WB]) => {
+        const 외래환자 = XLSX.utils.sheet_to_json(file2WB.Sheets[file2WB.SheetNames[0]], { header: 1 });
+        const 수납액 = XLSX.utils.sheet_to_json(file3WB.Sheets[file3WB.SheetNames[0]], { header: 1 });
 
-      rows.forEach(row => {
-        const age = parseInt(row[1]);
-        const amount = parseInt(row[2].toString().replace(/,/g, '') || 0);
-        if (isNaN(age) || isNaN(amount)) return;
+        const 나이목록 = 외래환자.map(r => r[4]).filter(v => !isNaN(parseInt(v))); // E열: 나이
+        const 금액목록 = 수납액.map(r => parseInt(r[12]?.toString().replace(/,/g, '') || 0)); // M열: 수납액
 
-        if (age < 20) result['10대'] += amount;
-        else if (age < 30) result['20대'] += amount;
-        else if (age < 40) result['30대'] += amount;
-        else if (age < 50) result['40대'] += amount;
-        else if (age < 60) result['50대'] += amount;
-        else if (age < 70) result['60대'] += amount;
-        else if (age < 80) result['70대'] += amount;
-        else result['80대'] += amount;
+        const minLen = Math.min(나이목록.length, 금액목록.length);
+        const result = {
+          '10대': 0, '20대': 0, '30대': 0, '40대': 0,
+          '50대': 0, '60대': 0, '70대': 0, '80대': 0
+        };
+
+        for (let i = 0; i < minLen; i++) {
+          const age = parseInt(나이목록[i]);
+          const amount = 금액목록[i];
+          if (isNaN(age) || isNaN(amount)) continue;
+
+          if (age < 20) result['10대'] += amount;
+          else if (age < 30) result['20대'] += amount;
+          else if (age < 40) result['30대'] += amount;
+          else if (age < 50) result['40대'] += amount;
+          else if (age < 60) result['50대'] += amount;
+          else if (age < 70) result['60대'] += amount;
+          else if (age < 80) result['70대'] += amount;
+          else result['80대'] += amount;
+        }
+
+        const tbody = document.querySelector('#resultTable tbody');
+        tbody.innerHTML = '';
+        let grandTotal = 0;
+
+        Object.entries(result).forEach(([age, total]) => {
+          grandTotal += total;
+          const row = `<tr><td>${age}</td><td>${total.toLocaleString()}</td></tr>`;
+          tbody.insertAdjacentHTML('beforeend', row);
+        });
+
+        tbody.insertAdjacentHTML('beforeend', `<tr style="font-weight:bold">
+          <td>합계</td><td>${grandTotal.toLocaleString()}</td></tr>`);
+
+        document.getElementById('resultTable').style.display = 'table';
       });
-
-      const tbody = document.querySelector('#resultTable tbody');
-      tbody.innerHTML = '';
-      let grandTotal = 0;
-
-      Object.entries(result).forEach(([age, total]) => {
-        grandTotal += total;
-        const row = `<tr><td>${age}</td><td>${total.toLocaleString()}</td></tr>`;
-        tbody.insertAdjacentHTML('beforeend', row);
-      });
-
-      tbody.insertAdjacentHTML('beforeend', `<tr style="font-weight:bold">
-        <td>합계</td><td>${grandTotal.toLocaleString()}</td></tr>`);
-
-      document.getElementById('resultTable').style.display = 'table';
-    };
-    reader.readAsArrayBuffer(e.target.files[0]);
   });
 </script>
 
