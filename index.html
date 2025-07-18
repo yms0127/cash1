@@ -5,7 +5,7 @@
 <title>외래 통계 자동 계산 도구</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
-  body { font-family: Arial, sans-serif; margin: 20px; max-width: 900px; }
+  body { font-family: Arial, sans-serif; margin: 20px; max-width: 1000px; }
   h1 { color: #2c3e50; }
   label { display: block; margin-top: 15px; }
   table { border-collapse: collapse; margin-top: 20px; width: 100%; }
@@ -33,7 +33,6 @@
   function handleFile(e, key) {
     const file = e.target.files[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (evt) => {
       const data = evt.target.result;
@@ -42,8 +41,6 @@
       const worksheet = workbook.Sheets[sheetName];
       const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
       filesData[key] = jsonData;
-      console.log(`${key} loaded`, jsonData);
-
       if (filesData.naewon && filesData.oerae && filesData.daily) {
         document.getElementById('btnProcess').disabled = false;
       }
@@ -72,7 +69,7 @@
       if (jumin.length !== 13) return null;
       let year = parseInt(jumin.substring(0,2));
       const code = parseInt(jumin.charAt(6));
-      if (code === 1 || code === 2 || code === 5 || code === 6) year += 1900;
+      if ([1,2,5,6].includes(code)) year += 1900;
       else year += 2000;
       const today = new Date();
       return today.getFullYear() - year + 1;
@@ -92,41 +89,39 @@
     return '70대 이상';
   }
 
+  function formatHourRange(hour) {
+    if (hour < 9) return '09:00~09:59';
+    if (hour > 19) return '19:00~19:59';
+    return `${hour.toString().padStart(2,'0')}:00~${hour.toString().padStart(2,'0')}:59`;
+  }
+
   function createTable(title, headers, data) {
     let html = `<div class="section"><h2>${title}</h2><table><thead><tr>`;
-    headers.forEach(h => { html += `<th>${h}</th>` });
+    headers.forEach(h => html += `<th>${h}</th>`);
     html += `</tr></thead><tbody>`;
     data.forEach(row => {
-      html += `<tr>`;
-      row.forEach(cell => {
-        html += `<td>${cell}</td>`;
-      });
-      html += `</tr>`;
+      html += '<tr>';
+      row.forEach(cell => html += `<td>${cell}</td>`);
+      html += '</tr>';
     });
-    html += `</tbody></table></div>`;
+    html += '</tbody></table></div>`;
     return html;
   }
 
-  function sumArray(arr) {
-    return arr.reduce((a,b) => a+b, 0);
+  function sumRow(row) {
+    return row.reduce((a,b) => a + (typeof b === 'number' ? b : 0), 0);
   }
 
   document.getElementById('btnProcess').addEventListener('click', () => {
     const naewon = filesData.naewon;
     const oerae = filesData.oerae;
     const daily = filesData.daily;
-
-    // 파일 로드 검증
     if (!naewon || !oerae || !daily) {
       alert('모든 파일을 업로드 해주세요.');
       return;
     }
 
-    // 데이터 변수 세팅 (헤더 없는 상태 가정)
-
-    // === 저장1: 주소별, 내원경로별, 연령별 성별 수납액 ===
-
-    // 1) 내원경로.xlsx : A=0(내원경로), B=1(차트번호)
+    // 내원경로 맵 생성: 차트번호 -> 내원경로
     const naewonMap = new Map();
     for(let i=1; i<naewon.length; i++) {
       const row = naewon[i];
@@ -135,25 +130,17 @@
       if(chartNum) naewonMap.set(chartNum, route);
     }
 
-    // 2) 외래환자.xlsx : C=2(차트번호), E=4(주민번호), M=12(수납액)
-    // 3) 일일집계.xlsx : C=2(차트번호), E=4(주민번호), J=9(신환/재진/90일초진), AD=29(접수일시)
-    //    주민번호, 접수일시는 문자열로 처리
-
-    // 주민번호 -> 성별, 연령, 연령대 계산 함수 사용
-
     // 외래환자 맵: 차트번호 -> 수납액(합계)
     const payMap = new Map();
     for(let i=1; i<oerae.length; i++) {
       const row = oerae[i];
       const chartNum = row[2] ? row[2].toString().trim() : '';
       const pay = Number(row[12]) || 0;
-      if(chartNum) {
-        payMap.set(chartNum, (payMap.get(chartNum) || 0) + pay);
-      }
+      if(chartNum) payMap.set(chartNum, (payMap.get(chartNum) || 0) + pay);
     }
 
-    // 일일집계 주민번호와 환자구분 및 접수시간 매핑
-    const dailyMap = new Map(); // 차트번호 -> {jumin, patientType, dateStr}
+    // 일일집계 맵: 차트번호 -> {jumin, patientType, dateStr, hour}
+    const dailyMap = new Map();
     for(let i=1; i<daily.length; i++) {
       const row = daily[i];
       const chartNum = row[2] ? row[2].toString().trim() : '';
@@ -161,31 +148,27 @@
       const patientTypeRaw = row[9] ? row[9].toString().trim() : '';
       const patientType = (patientTypeRaw === '신환' || patientTypeRaw === '90일초진') ? patientTypeRaw : '재진';
       const dateStr = row[29] ? row[29].toString().trim() : '';
-      if(chartNum) {
-        dailyMap.set(chartNum, { jumin, patientType, dateStr });
+      let hour = null;
+      if(dateStr.length >= 10) {
+        const hr = parseInt(dateStr.substring(8,10));
+        hour = hr < 9 ? 9 : (hr > 19 ? 19 : hr);
       }
+      if(chartNum) dailyMap.set(chartNum, { jumin, patientType, dateStr, hour });
     }
 
-    // 저장1 계산: 내원경로 + 연령대 + 성별 + 수납액 통계
-    // 집계 구조: { [내원경로]: { [연령대]: { 남: 금액, 여: 금액 } } }
-
+    // 저장1: 내원경로 + 연령대 + 성별 + 수납액 집계
     const stat1 = {};
-
     payMap.forEach((pay, chartNum) => {
       const route = naewonMap.get(chartNum) || '무응답';
-      const dailyInfo = dailyMap.get(chartNum);
-      if(!dailyInfo) return;
-
-      const gender = getGender(dailyInfo.jumin);
-      const age = calcAgeFromJumin(dailyInfo.jumin);
+      const d = dailyMap.get(chartNum);
+      if(!d) return;
+      const gender = getGender(d.jumin);
+      const age = calcAgeFromJumin(d.jumin);
       const ageGrp = ageGroup(age);
-
       if(!stat1[route]) stat1[route] = {};
       if(!stat1[route][ageGrp]) stat1[route][ageGrp] = { 남:0, 여:0 };
       stat1[route][ageGrp][gender] += pay;
     });
-
-    // 출력 테이블 데이터 만들기
     const stat1Rows = [];
     for(const route in stat1) {
       for(const ageGrp in stat1[route]) {
@@ -198,11 +181,85 @@
       }
     }
 
-    // === 저장2~4 계산 생략 (시간 관계상 먼저 저장1 샘플만 작성) ===
+    // 저장2: 신환 기준 최초 내원 수납액 및 총 매출 계산
+    const firstPayMap = new Map(); // 차트번호 -> 최초 수납액
+    const totalPayMap = new Map(); // 차트번호 -> 총 매출액
+    dailyMap.forEach((d, chartNum) => {
+      if(!payMap.has(chartNum)) return;
+      if(d.patientType === '신환' || d.patientType === '90일초진') {
+        if(!firstPayMap.has(chartNum)) firstPayMap.set(chartNum, payMap.get(chartNum));
+        else firstPayMap.set(chartNum, Math.min(firstPayMap.get(chartNum), payMap.get(chartNum)));
+      }
+      totalPayMap.set(chartNum, (totalPayMap.get(chartNum) || 0) + (payMap.get(chartNum) || 0));
+    });
+
+    // 환자별 신환 수납액 및 총 매출 집계
+    const stat2 = {};
+    firstPayMap.forEach((pay, chartNum) => {
+      const route = naewonMap.get(chartNum) || '무응답';
+      if(!stat2[route]) stat2[route] = { 수:0, 매출:0, 수납액:0 };
+      stat2[route].수 += 1;
+      stat2[route].매출 += totalPayMap.get(chartNum) || 0;
+      stat2[route].수납액 += pay;
+    });
+    const stat2Rows = [];
+    for(const route in stat2) {
+      stat2Rows.push([
+        route,
+        stat2[route].수.toLocaleString(),
+        stat2[route].매출.toLocaleString(),
+        stat2[route].수납액.toLocaleString()
+      ]);
+    }
+
+    // 저장3: 시간대별 연령대별, 성별 내원 수
+    const stat3 = {};
+    dailyMap.forEach((d, chartNum) => {
+      const gender = getGender(d.jumin);
+      const age = calcAgeFromJumin(d.jumin);
+      const ageGrp = ageGroup(age);
+      const timeRange = d.hour !== null ? formatHourRange(d.hour) : '미상';
+      if(!stat3[timeRange]) stat3[timeRange] = {};
+      if(!stat3[timeRange][ageGrp]) stat3[timeRange][ageGrp] = { 남:0, 여:0 };
+      stat3[timeRange][ageGrp][gender] += 1;
+    });
+    const stat3Rows = [];
+    for(const timeRange in stat3) {
+      for(const ageGrp in stat3[timeRange]) {
+        stat3Rows.push([
+          timeRange,
+          ageGrp,
+          stat3[timeRange][ageGrp].남,
+          stat3[timeRange][ageGrp].여
+        ]);
+      }
+    }
+
+    // 저장4: 환자구분별 남여 인원수 (중복 차트번호 1회 집계)
+    const patientMap = new Map(); // 차트번호 -> { 환자구분, 성별 }
+    dailyMap.forEach((d, chartNum) => {
+      const gender = getGender(d.jumin);
+      const patientType = d.patientType;
+      if(!patientMap.has(chartNum)) patientMap.set(chartNum, { 환자구분: patientType, 성별: gender });
+    });
+    const stat4Count = {};
+    patientMap.forEach(({ 환자구분, 성별 }) => {
+      if(!stat4Count[환자구분]) stat4Count[환자구분] = { 남:0, 여:0, 무응답:0 };
+      if(['남','여'].includes(성별)) stat4Count[환자구분][성별]++;
+      else stat4Count[환자구분].무응답++;
+    });
+    const stat4Rows = [];
+    for(const type of ['신환','재진','90일초진']) {
+      const c = stat4Count[type] || { 남:0, 여:0, 무응답:0 };
+      stat4Rows.push([type, c.남, c.여, c.무응답, c.남 + c.여 + c.무응답]);
+    }
 
     // 결과 출력
     let html = '';
     html += createTable('저장1: 내원경로별 연령대별 성별 수납액', ['내원경로', '연령대', '남 수납액', '여 수납액'], stat1Rows);
+    html += createTable('저장2: 신환 내원경로별 신환 수 및 매출액/수납액', ['내원경로', '신환 수', '총 매출액', '수납액'], stat2Rows);
+    html += createTable('저장3: 시간대별 연령대별 성별 내원 수', ['시간대', '연령대', '남 내원 수', '여 내원 수'], stat3Rows);
+    html += createTable('저장4: 환자구분별 성별 인원수', ['환자구분', '남', '여', '무응답', '합계'], stat4Rows);
 
     document.getElementById('results').innerHTML = html;
   });
