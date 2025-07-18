@@ -1,288 +1,319 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8" />
-<title>외래 통계 자동 계산 도구</title>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<style>
-  body { font-family: Arial, sans-serif; margin: 20px; max-width: 1100px; }
-  h1 { color: #2c3e50; }
-  label { display: block; margin-top: 15px; }
-  table { border-collapse: collapse; margin-top: 20px; width: 100%; }
-  th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: center; }
-  th { background-color: #f4f4f4; }
-  #results { margin-top: 30px; white-space: nowrap; overflow-x: auto; }
-  .section { margin-top: 40px; }
-</style>
+  <meta charset="UTF-8" />
+  <title>외래 통계 자동 계산</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 1200px; margin: auto; }
+    h2 { color: #2c3e50; }
+    table { border-collapse: collapse; width: 100%; margin-top: 15px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background-color: #f4f4f4; }
+    .section { margin-bottom: 40px; }
+    input[type="file"] { margin-bottom: 10px; }
+    button { margin-top: 10px; padding: 8px 16px; font-size: 16px; cursor: pointer; }
+  </style>
 </head>
 <body>
-  <h1>외래 통계 자동 계산 도구</h1>
-  <p>내원경로.xlsx, 외래환자.xlsx, 일일집계.xlsx 3개 파일을 모두 업로드하세요.</p>
+  <h1>외래 통계 자동 계산</h1>
+  <p>※ 헤더 없는 엑셀 파일 3개를 아래 순서대로 업로드하세요.</p>
+  <div class="section">
+    <label>1. 내원경로.xlsx (A열: 내원경로, B열: 차트번호)</label><br />
+    <input type="file" id="filePath" accept=".xlsx" />
+  </div>
+  <div class="section">
+    <label>2. 외래환자.xlsx (D열: 차트번호, M열: 수납액)</label><br />
+    <input type="file" id="filePatient" accept=".xlsx" />
+  </div>
+  <div class="section">
+    <label>3. 일일집계.xlsx (C열: 차트번호, E열: 주민번호, J열: 신환/재진, L열: 접수시간)</label><br />
+    <input type="file" id="fileDaily" accept=".xlsx" />
+  </div>
+  <button id="processBtn">통계 생성</button>
 
-  <label>내원경로.xlsx: <input type="file" id="fileNaewon" accept=".xlsx,.xls" /></label>
-  <label>외래환자.xlsx: <input type="file" id="fileOerae" accept=".xlsx,.xls" /></label>
-  <label>일일집계.xlsx: <input type="file" id="fileDaily" accept=".xlsx,.xls" /></label>
+  <div id="results" style="display:none;">
+    <h2>1. 연령대별 수납액 (성별 포함)</h2>
+    <table id="ageSexTable">
+      <thead>
+        <tr><th>연령대</th><th>남자 수납액</th><th>여자 수납액</th><th>총 수납액</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
 
-  <button id="btnProcess" disabled>통계 계산 시작</button>
+    <h2>2. 시간대별 연령 통계</h2>
+    <table id="timeAgeTable">
+      <thead>
+        <tr>
+          <th>시간대</th><th>10대</th><th>20대</th><th>30대</th><th>40대</th><th>50대</th><th>60대</th><th>70대</th><th>80대</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
 
-  <div id="results"></div>
+    <h2>3. 시간대별 성별 내원 통계</h2>
+    <table id="timeSexTable">
+      <thead><tr><th>시간대</th><th>남자 내원</th><th>여자 내원</th><th>총 내원</th></tr></thead>
+      <tbody></tbody>
+    </table>
 
-<script>
-  const filesData = { naewon: null, oerae: null, daily: null };
+    <h2>4. 신환 / 재진 인원 통계</h2>
+    <table id="patientTypeTable">
+      <thead><tr><th>구분</th><th>인원 수</th></tr></thead>
+      <tbody></tbody>
+    </table>
 
-  function handleFile(e, key) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const data = evt.target.result;
-      const workbook = XLSX.read(data, { type: 'binary' });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-      filesData[key] = jsonData;
+    <h2>5. 신환 내원경로별 수납액 및 평균</h2>
+    <table id="newPatientRouteTable">
+      <thead><tr><th>내원경로</th><th>총 수납액</th><th>평균 수납액</th><th>인원 수</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    // 주민번호에서 연령 계산 (2025년 기준)
+    function getAgeFromRRN(rrn, 기준일 = new Date()) {
+      if (!rrn) return null;
+      const r = rrn.toString().replace(/[^0-9]/g, '');
+      if (r.length < 7) return null;
+      const yy = parseInt(r.substring(0, 2), 10);
+      const mm = parseInt(r.substring(2, 4), 10);
+      const dd = parseInt(r.substring(4, 6), 10);
+      const genderCode = r.charAt(6);
+      let yearPrefix = '';
+      if ('1257'.includes(genderCode)) yearPrefix = 1900;
+      else if ('3468'.includes(genderCode)) yearPrefix = 2000;
+      else return null;
+      const birthYear = yearPrefix + yy;
+      const birthDate = new Date(birthYear, mm - 1, dd);
+      let age = 기준일.getFullYear() - birthDate.getFullYear();
       if (
-        filesData.naewon && Array.isArray(filesData.naewon) && filesData.naewon.length > 1 &&
-        filesData.oerae && Array.isArray(filesData.oerae) && filesData.oerae.length > 1 &&
-        filesData.daily && Array.isArray(filesData.daily) && filesData.daily.length > 1
+        기준일.getMonth() < birthDate.getMonth() ||
+        (기준일.getMonth() === birthDate.getMonth() && 기준일.getDate() < birthDate.getDate())
       ) {
-        document.getElementById('btnProcess').disabled = false;
+        age--;
       }
-    };
-    reader.readAsBinaryString(file);
-  }
-
-  document.getElementById('fileNaewon').addEventListener('change', (e) => handleFile(e, 'naewon'));
-  document.getElementById('fileOerae').addEventListener('change', (e) => handleFile(e, 'oerae'));
-  document.getElementById('fileDaily').addEventListener('change', (e) => handleFile(e, 'daily'));
-
-  function getGender(jumin) {
-    try {
-      jumin = jumin.toString().replace(/-/g, '').trim();
-      if (jumin.length !== 13) return '무응답';
-      const code = parseInt(jumin.charAt(6));
-      return code % 2 === 1 ? '남' : '여';
-    } catch {
-      return '무응답';
+      return age;
     }
-  }
 
-  function calcAgeFromJumin(jumin) {
-    try {
-      jumin = jumin.toString().replace(/-/g, '').trim();
-      if (jumin.length !== 13) return null;
-      let year = parseInt(jumin.substring(0,2));
-      const code = parseInt(jumin.charAt(6));
-      if ([1,2,5,6].includes(code)) year += 1900;
-      else year += 2000;
-      const today = new Date();
-      return today.getFullYear() - year + 1;
-    } catch {
+    // 성별 판별
+    function getGenderFromRRN(rrn) {
+      if (!rrn) return null;
+      const r = rrn.toString().replace(/[^0-9]/g, '');
+      if (r.length < 7) return null;
+      const genderCode = r.charAt(6);
+      if ('1357'.includes(genderCode)) return '남자';
+      if ('2468'.includes(genderCode)) return '여자';
       return null;
     }
-  }
 
-  function ageGroup(age) {
-    if (age === null) return '미상';
-    if (age < 20) return '10대';
-    if (age < 30) return '20대';
-    if (age < 40) return '30대';
-    if (age < 50) return '40대';
-    if (age < 60) return '50대';
-    if (age < 70) return '60대';
-    return '70대 이상';
-  }
-
-  function formatHourRange(hour) {
-    if (hour < 9) return '09:00~09:59';
-    if (hour > 19) return '19:00~19:59';
-    return `${hour.toString().padStart(2,'0')}:00~${hour.toString().padStart(2,'0')}:59`;
-  }
-
-  // 주소에서 시/군/구까지만 추출 (띄어쓰기 기준 최대 3단어)
-  function extractSiGunGu(fullAddr) {
-    if (!fullAddr) return '무응답';
-    const parts = fullAddr.trim().split(' ');
-    return parts.slice(0, 3).join(' ');
-  }
-
-  function createTable(title, headers, data) {
-    let html = `<div class="section"><h2>${title}</h2><table><thead><tr>`;
-    headers.forEach(h => html += `<th>${h}</th>`);
-    html += `</tr></thead><tbody>`;
-    data.forEach(row => {
-      html += '<tr>';
-      row.forEach(cell => html += `<td>${cell}</td>`);
-      html += '</tr>';
-    });
-    html += '</tbody></table></div>';
-    return html;
-  }
-
-  document.getElementById('btnProcess').addEventListener('click', () => {
-    const naewon = filesData.naewon;
-    const oerae = filesData.oerae;
-    const daily = filesData.daily;
-    if (!naewon || !oerae || !daily) {
-      alert('모든 파일을 업로드 해주세요.');
-      return;
+    function formatNumber(num) {
+      return num.toLocaleString();
     }
 
-    // 1. 내원경로 맵: 차트번호 -> { route, addr }
-    // 주소는 C열(2)와 D열(3) 합쳐서 시/군/구 단위만 추출
-    const naewonMap = new Map();
-    for(let i=1; i<naewon.length; i++) {
-      const row = naewon[i];
-      const chartNum = row[1] ? row[1].toString().trim() : '';
-      const route = row[0] ? row[0].toString().trim() : '무응답';
-      let addrRaw = '';
-      if(row[2]) addrRaw += row[2].toString().trim() + ' ';
-      if(row[3]) addrRaw += row[3].toString().trim();
-      const addr = extractSiGunGu(addrRaw);
-      if(chartNum) naewonMap.set(chartNum, { route, addr });
+    function getAgeGroup(age) {
+      if (age < 10) return null;
+      if (age < 20) return '10대';
+      if (age < 30) return '20대';
+      if (age < 40) return '30대';
+      if (age < 50) return '40대';
+      if (age < 60) return '50대';
+      if (age < 70) return '60대';
+      if (age < 80) return '70대';
+      return '80대';
     }
 
-    // 2. 외래환자 맵: 차트번호 -> 수납액 합계
-    const payMap = new Map();
-    for(let i=1; i<oerae.length; i++) {
-      const row = oerae[i];
-      const chartNum = row[2] ? row[2].toString().trim() : '';
-      const pay = Number(row[12]) || 0;
-      if(chartNum) payMap.set(chartNum, (payMap.get(chartNum) || 0) + pay);
+    function getHourGroup(dateTimeString) {
+      if (!dateTimeString) return null;
+      const dt = new Date(dateTimeString);
+      if (isNaN(dt)) return null;
+      const h = dt.getHours();
+      // 시간대별 구간 9~18시 기준, 9~10, 10~11 ... 18~19
+      return `${h}:00~${h + 1}:00`;
     }
 
-    // 3. 일일집계 맵: 차트번호 -> { jumin, patientType, dateStr, hour }
-    const dailyMap = new Map();
-    for(let i=1; i<daily.length; i++) {
-      const row = daily[i];
-      const chartNum = row[2] ? row[2].toString().trim() : '';
-      const jumin = row[4] ? row[4].toString().trim() : '';
-      const patientTypeRaw = row[9] ? row[9].toString().trim() : '';
-      const patientType = (patientTypeRaw === '신환' || patientTypeRaw === '90일초진') ? patientTypeRaw : '재진';
-      const dateStr = row[29] ? row[29].toString().trim() : '';
-      let hour = null;
-      if(dateStr) {
-        if (/^\d{14}$/.test(dateStr)) {
-          hour = parseInt(dateStr.substring(8,10));
-        } else if(dateStr.length >= 13) {
-          hour = parseInt(dateStr.substring(11,13));
-        }
-        if(hour !== null) {
-          if(hour < 9) hour = 9;
-          else if(hour > 19) hour = 19;
-        }
+    function parseExcelTime(serial) {
+      if (typeof serial === 'number') {
+        return new Date((serial - 25569) * 86400 * 1000);
       }
-      if(chartNum) dailyMap.set(chartNum, { jumin, patientType, dateStr, hour });
+      return new Date(serial);
     }
 
-    // === 저장1: 주소+내원경로+연령대+성별별 수납액 합계 ===
-    const stat1 = {};
-    payMap.forEach((pay, chartNum) => {
-      const naewonInfo = naewonMap.get(chartNum) || { route:'무응답', addr:'무응답' };
-      const jumin = dailyMap.get(chartNum)?.jumin || '';
-      const gender = getGender(jumin);
-      const age = calcAgeFromJumin(jumin);
-      const ageGrp = ageGroup(age);
-      if(!stat1[naewonInfo.addr]) stat1[naewonInfo.addr] = {};
-      if(!stat1[naewonInfo.addr][naewonInfo.route]) stat1[naewonInfo.addr][naewonInfo.route] = {};
-      if(!stat1[naewonInfo.addr][naewonInfo.route][ageGrp]) stat1[naewonInfo.addr][naewonInfo.route][ageGrp] = { 남:0, 여:0 };
-      stat1[naewonInfo.addr][naewonInfo.route][ageGrp][gender] += pay;
-    });
-    const stat1Rows = [];
-    for(const addr in stat1) {
-      for(const route in stat1[addr]) {
-        for(const ageGrp in stat1[addr][route]) {
-          stat1Rows.push([
-            addr,
-            route,
-            ageGrp,
-            stat1[addr][route][ageGrp].남.toLocaleString(),
-            stat1[addr][route][ageGrp].여.toLocaleString()
-          ]);
-        }
+    document.getElementById('processBtn').addEventListener('click', async () => {
+      const filePath = document.getElementById('filePath').files[0];
+      const filePatient = document.getElementById('filePatient').files[0];
+      const fileDaily = document.getElementById('fileDaily').files[0];
+      if (!filePath || !filePatient || !fileDaily) {
+        alert('3개 파일을 모두 업로드해주세요.');
+        return;
       }
-    }
 
-    // === 저장2: 신환 기준 최초 내원 수납액 및 총 매출 계산 ===
-    const firstPayMap = new Map();
-    const totalPayMap = new Map();
-    dailyMap.forEach((d, chartNum) => {
-      if(!payMap.has(chartNum)) return;
-      if(d.patientType === '신환' || d.patientType === '90일초진') {
-        if(!firstPayMap.has(chartNum)) firstPayMap.set(chartNum, payMap.get(chartNum));
-        else firstPayMap.set(chartNum, Math.min(firstPayMap.get(chartNum), payMap.get(chartNum)));
-      }
-      totalPayMap.set(chartNum, (totalPayMap.get(chartNum) || 0) + (payMap.get(chartNum) || 0));
-    });
-    const stat2 = {};
-    firstPayMap.forEach((pay, chartNum) => {
-      const route = naewonMap.get(chartNum)?.route || '무응답';
-      if(!stat2[route]) stat2[route] = { 수:0, 매출:0, 수납액:0 };
-      stat2[route].수 += 1;
-      stat2[route].매출 += totalPayMap.get(chartNum) || 0;
-      stat2[route].수납액 += pay;
-    });
-    const stat2Rows = [];
-    for(const route in stat2) {
-      stat2Rows.push([
-        route,
-        stat2[route].수.toLocaleString(),
-        stat2[route].매출.toLocaleString(),
-        stat2[route].수납액.toLocaleString()
+      const [wbPath, wbPatient, wbDaily] = await Promise.all([
+        filePath.arrayBuffer().then(data => XLSX.read(data, {type:'array'})),
+        filePatient.arrayBuffer().then(data => XLSX.read(data, {type:'array'})),
+        fileDaily.arrayBuffer().then(data => XLSX.read(data, {type:'array'})),
       ]);
-    }
 
-    // === 저장3: 시간대별 연령대별 성별 내원 수 ===
-    const stat3 = {};
-    dailyMap.forEach((d, chartNum) => {
-      const gender = getGender(d.jumin);
-      const age = calcAgeFromJumin(d.jumin);
-      const ageGrp = ageGroup(age);
-      const timeRange = d.hour !== null ? formatHourRange(d.hour) : '미상';
-      if(!stat3[timeRange]) stat3[timeRange] = {};
-      if(!stat3[timeRange][ageGrp]) stat3[timeRange][ageGrp] = { 남:0, 여:0 };
-      stat3[timeRange][ageGrp][gender] += 1;
-    });
-    const stat3Rows = [];
-    for(const timeRange in stat3) {
-      for(const ageGrp in stat3[timeRange]) {
-        stat3Rows.push([
-          timeRange,
-          ageGrp,
-          stat3[timeRange][ageGrp].남,
-          stat3[timeRange][ageGrp].여
-        ]);
+      const sheetPath = wbPath.Sheets[wbPath.SheetNames[0]];
+      const sheetPatient = wbPatient.Sheets[wbPatient.SheetNames[0]];
+      const sheetDaily = wbDaily.Sheets[wbDaily.SheetNames[0]];
+
+      const pathData = XLSX.utils.sheet_to_json(sheetPath, {header:1, defval:''});
+      const patientData = XLSX.utils.sheet_to_json(sheetPatient, {header:1, defval:''});
+      const dailyData = XLSX.utils.sheet_to_json(sheetDaily, {header:1, defval:''});
+
+      // 맵핑용 차트번호별 내원경로
+      const routeMap = new Map();
+      for(let i=0; i<pathData.length; i++) {
+        const route = pathData[i][0];   // A열: 내원경로
+        const chartNo = pathData[i][1]; // B열: 차트번호
+        if(chartNo) routeMap.set(chartNo.toString(), route);
       }
-    }
 
-    // === 저장4: 환자구분별 남여 인원수 (중복 차트번호 1회 집계) ===
-    const patientMap = new Map();
-    dailyMap.forEach((d, chartNum) => {
-      const gender = getGender(d.jumin);
-      const patientType = d.patientType;
-      if(!patientMap.has(chartNum)) patientMap.set(chartNum, { 환자구분: patientType, 성별: gender });
+      // 맵핑용 차트번호별 주민번호, 신환재진, 접수시간
+      const dailyMap = new Map();
+      for(let i=0; i<dailyData.length; i++) {
+        const chartNo = dailyData[i][2]; // C열: 차트번호
+        const rrn = dailyData[i][4];     // E열: 주민번호
+        const patientTypeRaw = dailyData[i][9]; // J열: 신환/재진 구분
+        const patientType = (patientTypeRaw || '').toString().trim();
+        const timeRaw = dailyData[i][11]; // L열: 접수시간 (Excel serial or datetime string)
+        const time = timeRaw ? parseExcelTime(timeRaw) : null;
+
+        if(chartNo) dailyMap.set(chartNo.toString(), { rrn, patientType, time });
+      }
+
+      // 차트번호로 환자 데이터 매핑 + 수납액 등 가져오기
+      // 외래환자: D열(3) 차트번호, M열(12) 수납액
+      // 일일집계: 차트번호 매핑해서 주민번호, 신환재진, 접수시간 가져옴
+      // 내원경로: 차트번호 매핑해서 내원경로 가져옴
+
+      // 1. 연령대별 수납액 (성별 포함)
+      const ageSexSum = {};
+      const ageSexCount = {};
+      const ageGroups = ['10대','20대','30대','40대','50대','60대','70대','80대'];
+      for(const ag of ageGroups) {
+        ageSexSum[ag] = { 남자:0, 여자:0 };
+        ageSexCount[ag] = { 남자:0, 여자:0 };
+      }
+
+      // 2. 시간대별 연령
+      const timeAgeCount = {};
+      // 3. 시간대별 성별
+      const timeSexCount = {};
+
+      // 4. 신환/재진 인원
+      const patientTypeCount = { 신환:0, 재진:0 };
+
+      // 5. 신환 내원경로별 수납액 및 인원
+      const newPatientRoute = {};
+
+      for(let i=0; i<patientData.length; i++) {
+        const chartNo = patientData[i][3]; // D열: 차트번호
+        const feeRaw = patientData[i][12];  // M열: 수납액
+        if(!chartNo) continue;
+        const fee = feeRaw ? parseInt(feeRaw.toString().replace(/[^\d]/g,'')) || 0 : 0;
+
+        const dailyInfo = dailyMap.get(chartNo.toString());
+        if(!dailyInfo) continue;
+
+        const age = getAgeFromRRN(dailyInfo.rrn);
+        if(age === null) continue;
+        const ag = getAgeGroup(age);
+        if(!ag) continue;
+
+        const gender = getGenderFromRRN(dailyInfo.rrn);
+        if(!gender) continue;
+
+        // 1. 연령별 성별 수납액/인원 합산
+        ageSexSum[ag][gender] += fee;
+        ageSexCount[ag][gender]++;
+
+        // 2,3. 시간대별 연령, 성별 내원 수
+        const timeGroup = dailyInfo.time ? `${dailyInfo.time.getHours()}:00~${dailyInfo.time.getHours()+1}:00` : '기타';
+        if(!timeAgeCount[timeGroup]) timeAgeCount[timeGroup] = {};
+        if(!timeAgeCount[timeGroup][ag]) timeAgeCount[timeGroup][ag] = 0;
+        timeAgeCount[timeGroup][ag]++;
+
+        if(!timeSexCount[timeGroup]) timeSexCount[timeGroup] = { 남자:0, 여자:0 };
+        timeSexCount[timeGroup][gender]++;
+
+        // 4. 신환/재진 인원 집계
+        const pTypeRaw = dailyInfo.patientType || '';
+        let pType = null;
+        if(['신환','90일초진'].includes(pTypeRaw)) pType = '신환';
+        else if(['재진','물리치료내원','진찰료산정안함'].includes(pTypeRaw)) pType = '재진';
+        else pType = '재진'; // 공란 등 모두 재진 처리
+
+        patientTypeCount[pType]++;
+
+        // 5. 신환 내원경로별 수납액 및 인원
+        if(pType === '신환') {
+          const route = routeMap.get(chartNo.toString()) || '무응답';
+          if(!newPatientRoute[route]) newPatientRoute[route] = { 수납액:0, 인원:0 };
+          newPatientRoute[route].수납액 += fee;
+          newPatientRoute[route].인원++;
+        }
+      }
+
+      // 결과 표시
+      document.getElementById('results').style.display = 'block';
+
+      // 1. 연령대별 수납액(성별 포함)
+      const tbodyAgeSex = document.querySelector('#ageSexTable tbody');
+      tbodyAgeSex.innerHTML = '';
+      let totalFee = 0, totalMale = 0, totalFemale = 0;
+      ageGroups.forEach(ag=>{
+        const maleFee = ageSexSum[ag].남자;
+        const femaleFee = ageSexSum[ag].여자;
+        const sumFee = maleFee + femaleFee;
+        totalFee += sumFee; totalMale += maleFee; totalFemale += femaleFee;
+        const tr = `<tr><td>${ag}</td><td>${formatNumber(maleFee)}</td><td>${formatNumber(femaleFee)}</td><td>${formatNumber(sumFee)}</td></tr>`;
+        tbodyAgeSex.insertAdjacentHTML('beforeend', tr);
+      });
+      tbodyAgeSex.insertAdjacentHTML('beforeend', `<tr style="font-weight:bold"><td>합계</td><td>${formatNumber(totalMale)}</td><td>${formatNumber(totalFemale)}</td><td>${formatNumber(totalFee)}</td></tr>`);
+
+      // 2. 시간대별 연령 통계
+      const tbodyTimeAge = document.querySelector('#timeAgeTable tbody');
+      tbodyTimeAge.innerHTML = '';
+      Object.keys(timeAgeCount).sort().forEach(timeG=>{
+        const counts = timeAgeCount[timeG];
+        const tr = `<tr><td>${timeG}</td>${ageGroups.map(ag=>`<td>${counts[ag]||0}</td>`).join('')}</tr>`;
+        tbodyTimeAge.insertAdjacentHTML('beforeend', tr);
+      });
+
+      // 3. 시간대별 성별 내원 통계
+      const tbodyTimeSex = document.querySelector('#timeSexTable tbody');
+      tbodyTimeSex.innerHTML = '';
+      Object.keys(timeSexCount).sort().forEach(timeG=>{
+        const counts = timeSexCount[timeG];
+        const sum = (counts.남자||0) + (counts.여자||0);
+        const tr = `<tr><td>${timeG}</td><td>${counts.남자||0}</td><td>${counts.여자||0}</td><td>${sum}</td></tr>`;
+        tbodyTimeSex.insertAdjacentHTML('beforeend', tr);
+      });
+
+      // 4. 신환/재진 인원 통계
+      const tbodyPatientType = document.querySelector('#patientTypeTable tbody');
+      tbodyPatientType.innerHTML = '';
+      ['신환','재진'].forEach(tp=>{
+        const tr = `<tr><td>${tp}</td><td>${patientTypeCount[tp]||0}</td></tr>`;
+        tbodyPatientType.insertAdjacentHTML('beforeend', tr);
+      });
+
+      // 5. 신환 내원경로별 수납액 및 평균
+      const tbodyRoute = document.querySelector('#newPatientRouteTable tbody');
+      tbodyRoute.innerHTML = '';
+      let totalRouteFee = 0, totalRouteCnt = 0;
+      Object.entries(newPatientRoute).forEach(([route,data])=>{
+        const avg = data.인원 > 0 ? Math.round(data.수납액 / data.인원) : 0;
+        totalRouteFee += data.수납액;
+        totalRouteCnt += data.인원;
+        const tr = `<tr><td>${route}</td><td>${formatNumber(data.수납액)}</td><td>${formatNumber(avg)}</td><td>${data.인원}</td></tr>`;
+        tbodyRoute.insertAdjacentHTML('beforeend', tr);
+      });
+      tbodyRoute.insertAdjacentHTML('beforeend', `<tr style="font-weight:bold"><td>합계</td><td>${formatNumber(totalRouteFee)}</td><td>-</td><td>${totalRouteCnt}</td></tr>`);
+
     });
-    const stat4Count = {};
-    patientMap.forEach(({ 환자구분, 성별 }) => {
-      if(!stat4Count[환자구분]) stat4Count[환자구분] = { 남:0, 여:0, 무응답:0 };
-      if(['남','여'].includes(성별)) stat4Count[환자구분][성별]++;
-      else stat4Count[환자구분].무응답++;
-    });
-    const stat4Rows = [];
-    for(const type of ['신환','재진','90일초진']) {
-      const c = stat4Count[type] || { 남:0, 여:0, 무응답:0 };
-      stat4Rows.push([type, c.남, c.여, c.무응답, c.남 + c.여 + c.무응답]);
-    }
-
-    // 결과 출력
-    let html = '';
-    html += createTable('저장1: 주소별 내원경로별 연령대별 성별 수납액', ['주소(시/군/구)', '내원경로', '연령대', '남 수납액', '여 수납액'], stat1Rows);
-    html += createTable('저장2: 신환 내원경로별 신환 수 및 매출액/수납액', ['내원경로', '신환 수', '총 매출액', '수납액'], stat2Rows);
-    html += createTable('저장3: 시간대별 연령대별 성별 내원 수', ['시간대', '연령대', '남 내원 수', '여 내원 수'], stat3Rows);
-    html += createTable('저장4: 환자구분별 성별 인원수', ['환자구분', '남', '여', '무응답', '합계'], stat4Rows);
-
-    document.getElementById('results').innerHTML = html;
-  });
-</script>
+  </script>
 </body>
 </html>
