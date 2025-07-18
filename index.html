@@ -30,6 +30,27 @@
   </table>
 
 <script>
+  function extractAgeFromRRN(rrn, 기준일) {
+    if (!/^[0-9]{7,}/.test(rrn)) return null;
+    const yy = parseInt(rrn.slice(0, 2), 10);
+    const mm = parseInt(rrn.slice(2, 4), 10);
+    const dd = parseInt(rrn.slice(4, 6), 10);
+    const sexCode = rrn[6];
+    if (isNaN(yy) || isNaN(mm) || isNaN(dd) || !sexCode) return null;
+
+    const yearPrefix = (sexCode === '1' || sexCode === '2') ? 1900 : 2000;
+    const birthDate = new Date(yearPrefix + yy, mm - 1, dd);
+    const 기준 = new Date(기준일);
+    let age = 기준.getFullYear() - birthDate.getFullYear();
+    if (
+      기준.getMonth() < birthDate.getMonth() ||
+      (기준.getMonth() === birthDate.getMonth() && 기준.getDate() < birthDate.getDate())
+    ) {
+      age--;
+    }
+    return age;
+  }
+
   document.getElementById('process').addEventListener('click', function() {
     const 외래파일 = document.getElementById('file1').files[0];
     const 수납파일 = document.getElementById('file2').files[0];
@@ -46,59 +67,35 @@
       const 외래시트 = XLSX.utils.sheet_to_json(외래WB.Sheets[외래WB.SheetNames[0]], { header: 1 });
       const 수납시트 = XLSX.utils.sheet_to_json(수납WB.Sheets[수납WB.SheetNames[0]], { header: 1 });
 
-      const getAgeFromID = (id) => {
-        if (!id || typeof id !== 'string') return NaN;
-        const parts = id.replace(/[^0-9]/g, '');
-        if (parts.length < 7) return NaN;
-        const birthYear = parseInt(parts.substring(0, 2), 10);
-        const birthMonth = parseInt(parts.substring(2, 4), 10);
-        const birthDay = parseInt(parts.substring(4, 6), 10);
-        const centuryCode = parseInt(parts[6], 10);
+      const 기준일셀 = 수납시트[1]?.[0];
+      const 기준일 = typeof 기준일셀 === 'number' ? new Date((기준일셀 - 25569) * 86400 * 1000) : new Date();
 
-        let fullYear = 1900 + birthYear;
-        if (centuryCode === 3 || centuryCode === 4 || centuryCode === 7 || centuryCode === 8) {
-          fullYear = 2000 + birthYear;
-        }
+      const 연령별수납액 = { '10대': 0, '20대': 0, '30대': 0, '40대': 0, '50대': 0, '60대': 0, '70대': 0, '80대': 0 };
 
-        const today = new Date();
-        let age = today.getFullYear() - fullYear;
-        return age;
-      };
+      for (let i = 1; i < 외래시트.length; i++) {
+        const row = 외래시트[i];
+        const rrn = row[1]; // B열 = 주민등록번호
+        const 수납액 = parseInt((수납시트[i]?.[12] || '').toString().replace(/,/g, '')) || 0;
+        const age = extractAgeFromRRN(rrn?.toString(), 기준일);
+        if (age === null || isNaN(age)) continue;
 
-      const 연령값들 = 외래시트.map(row => getAgeFromID(row[4])).filter(age => !isNaN(age));
-      const 수납값들 = 수납시트.map(row => {
-        const raw = row[12];
-        if (typeof raw === 'number') return raw;
-        if (typeof raw === 'string') return parseInt(raw.replace(/[^\d]/g, ''));
-        return NaN;
-      }).filter(v => !isNaN(v));
+        let ageGroup = '';
+        if (age < 20) ageGroup = '10대';
+        else if (age < 30) ageGroup = '20대';
+        else if (age < 40) ageGroup = '30대';
+        else if (age < 50) ageGroup = '40대';
+        else if (age < 60) ageGroup = '50대';
+        else if (age < 70) ageGroup = '60대';
+        else if (age < 80) ageGroup = '70대';
+        else ageGroup = '80대';
 
-      const 연령대인원수 = { '10대': 0, '20대': 0, '30대': 0, '40대': 0, '50대': 0, '60대': 0, '70대': 0, '80대': 0 };
-      연령값들.forEach(age => {
-        if (age < 20) 연령대인원수['10대']++;
-        else if (age < 30) 연령대인원수['20대']++;
-        else if (age < 40) 연령대인원수['30대']++;
-        else if (age < 50) 연령대인원수['40대']++;
-        else if (age < 60) 연령대인원수['50대']++;
-        else if (age < 70) 연령대인원수['60대']++;
-        else if (age < 80) 연령대인원수['70대']++;
-        else 연령대인원수['80대']++;
-      });
-
-      const 연령대수납합계 = {};
-      let index = 0;
-      for (const [연령대, count] of Object.entries(연령대인원수)) {
-        let sum = 0;
-        for (let i = 0; i < count && index < 수납값들.length; i++, index++) {
-          sum += 수납값들[index];
-        }
-        연령대수납합계[연령대] = sum;
+        연령별수납액[ageGroup] += 수납액;
       }
 
       const tbody = document.querySelector('#resultTable tbody');
       tbody.innerHTML = '';
       let total = 0;
-      Object.entries(연령대수납합계).forEach(([연령대, 금액]) => {
+      Object.entries(연령별수납액).forEach(([연령대, 금액]) => {
         total += 금액;
         const row = `<tr><td>${연령대}</td><td>${금액.toLocaleString()}</td></tr>`;
         tbody.insertAdjacentHTML('beforeend', row);
