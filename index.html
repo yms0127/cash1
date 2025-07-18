@@ -67,15 +67,22 @@
       const 외래시트 = XLSX.utils.sheet_to_json(외래WB.Sheets[외래WB.SheetNames[0]], { header: 1 });
       const 수납시트 = XLSX.utils.sheet_to_json(수납WB.Sheets[수납WB.SheetNames[0]], { header: 1 });
 
-      const 기준일셀 = 수납시트[1]?.[0];
-      const 기준일 = typeof 기준일셀 === 'number' ? new Date((기준일셀 - 25569) * 86400 * 1000) : new Date();
-
+      const 기준일 = new Date();
       const 연령별수납액 = { '10대': 0, '20대': 0, '30대': 0, '40대': 0, '50대': 0, '60대': 0, '70대': 0, '80대': 0 };
 
-      for (let i = 1; i < 외래시트.length; i++) {
+      // 수납 데이터 Map 만들기: key는 진료일자+이름+생년월일, value는 수납액
+      const 수납Map = new Map();
+      for (let i = 0; i < 수납시트.length; i++) {
+        const row = 수납시트[i];
+        const rrn = row[1]; // B열: 주민번호 앞자리
+        const 수납액 = parseInt((row[12] || '').toString().replace(/,/g, '')) || 0;
+        if (!rrn || 수납액 === 0) continue;
+        수납Map.set(rrn.toString().slice(0, 6), 수납액);
+      }
+
+      for (let i = 0; i < 외래시트.length; i++) {
         const row = 외래시트[i];
         const rrn = row[1]; // B열 = 주민등록번호
-        const 수납액 = parseInt((수납시트[i]?.[12] || '').toString().replace(/,/g, '')) || 0;
         const age = extractAgeFromRRN(rrn?.toString(), 기준일);
         if (age === null || isNaN(age)) continue;
 
@@ -89,6 +96,8 @@
         else if (age < 80) ageGroup = '70대';
         else ageGroup = '80대';
 
+        const snKey = rrn?.toString().slice(0, 6);
+        const 수납액 = 수납Map.get(snKey) || 0;
         연령별수납액[ageGroup] += 수납액;
       }
 
