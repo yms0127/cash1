@@ -1,75 +1,102 @@
-
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8" />
-  <title>외래 통계 자동 계산 (테스트용)</title>
+  <meta charset="UTF-8">
+  <title>연령별 수납액 통계</title>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; max-width: 1200px; margin: auto; }
-    h1 { color: #2c3e50; text-align: center; }
-    input[type=file] { margin: 10px 0; }
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    h2 { color: #2c3e50; }
     table { border-collapse: collapse; width: 100%; margin-top: 20px; }
     th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
-    th { background-color: #f0f0f0; }
-    .section { margin-top: 40px; }
+    th { background-color: #f4f4f4; }
+    .highlight { background-color: #ffe5e5; }
   </style>
 </head>
 <body>
-  <h1>외래 통계 자동 계산 도구 (테스트 버전)</h1>
-  <p>엑셀 파일 3개를 업로드하세요: <strong>내원경로.xlsx, 외래환자.xlsx, 일일집계.xlsx</strong></p>
-  <input type="file" id="fileInput" multiple />
-  <div id="output"></div>
+  <h2>연령별 수납액 통계</h2>
+  <input type="file" id="fileInput" accept=".xlsx" />
+  <table id="resultTable" style="display:none">
+    <thead>
+      <tr>
+        <th>구분</th>
+        <th>남</th>
+        <th>여</th>
+        <th>총 수납액</th>
+        <th>평균 수납액</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
 
-  <script>
-    document.getElementById('fileInput').addEventListener('change', handleFiles, false);
+<script>
+  document.getElementById('fileInput').addEventListener('change', function(e) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
 
-    function handleFiles(e) {
-      const files = e.target.files;
-      const fileMap = {};
-      for (const file of files) {
-        if (file.name.includes("내원경로")) fileMap.route = file;
-        else if (file.name.includes("외래환자")) fileMap.patient = file;
-        else if (file.name.includes("일일집계")) fileMap.payment = file;
-      }
+      const ageGroups = ['10대','20대','30대','40대','50대','60대','70대','80대'];
+      const result = {};
 
-      if (!fileMap.route || !fileMap.patient || !fileMap.payment) {
-        alert("3개의 파일(내원경로, 외래환자, 일일집계)을 모두 업로드해주세요.");
-        return;
-      }
+      ageGroups.forEach(age => result[age] = { 남: 0, 여: 0 });
 
-      Promise.all([
-        readExcel(fileMap.route),
-        readExcel(fileMap.patient),
-        readExcel(fileMap.payment)
-      ]).then(([routeData, patientData, paymentData]) => {
-        document.getElementById('output').innerHTML = `
-          <div class="section"><h2>✅ 파일 업로드 완료</h2>
-            <ul>
-              <li>내원경로: ${fileMap.route.name}</li>
-              <li>외래환자: ${fileMap.patient.name}</li>
-              <li>일일집계: ${fileMap.payment.name}</li>
-            </ul>
-            <p style="color:green">※ 통계 계산 기능은 지금 반영 중입니다.</p>
-          </div>
-        `;
+      json.forEach(row => {
+        const gender = row['성별']?.trim();
+        const age = parseInt(row['나이'], 10);
+        const price = parseInt(row['수납액']?.toString().replace(/,/g, '') || 0, 10);
+
+        let ageGroup = '';
+        if (age >= 10 && age < 20) ageGroup = '10대';
+        else if (age < 30) ageGroup = '20대';
+        else if (age < 40) ageGroup = '30대';
+        else if (age < 50) ageGroup = '40대';
+        else if (age < 60) ageGroup = '50대';
+        else if (age < 70) ageGroup = '60대';
+        else if (age < 80) ageGroup = '70대';
+        else if (age >= 80) ageGroup = '80대';
+
+        if (ageGroup && (gender === '남' || gender === '여')) {
+          result[ageGroup][gender] += price;
+        }
       });
-    }
 
-    function readExcel(file) {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const data = new Uint8Array(e.target.result);
-          const workbook = XLSX.read(data, { type: "array" });
-          const firstSheet = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[firstSheet];
-          const json = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
-          resolve(json);
-        };
-        reader.readAsArrayBuffer(file);
+      const tbody = document.querySelector('#resultTable tbody');
+      tbody.innerHTML = '';
+      let grandTotal = 0, grandCount = 0;
+
+      Object.entries(result).forEach(([age, values]) => {
+        const total = values['남'] + values['여'];
+        const avg = total > 0 ? Math.round(total / ((values['남']>0)+(values['여']>0))) : 0;
+        grandTotal += total;
+        grandCount += ((values['남']>0)+(values['여']>0));
+
+        const row = `<tr>
+          <td>${age}</td>
+          <td>${values['남'].toLocaleString()}</td>
+          <td>${values['여'].toLocaleString()}</td>
+          <td>${total.toLocaleString()}</td>
+          <td>${avg.toLocaleString()}</td>
+        </tr>`;
+        tbody.insertAdjacentHTML('beforeend', row);
       });
-    }
-  </script>
+
+      const finalAvg = grandCount > 0 ? Math.round(grandTotal / grandCount) : 0;
+      tbody.insertAdjacentHTML('beforeend', `<tr style="font-weight:bold">
+        <td>합계</td>
+        <td colspan="2"></td>
+        <td>${grandTotal.toLocaleString()}</td>
+        <td>${finalAvg.toLocaleString()}</td>
+      </tr>`);
+
+      document.getElementById('resultTable').style.display = 'table';
+    };
+    reader.readAsArrayBuffer(e.target.files[0]);
+  });
+</script>
+
 </body>
 </html>
