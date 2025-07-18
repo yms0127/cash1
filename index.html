@@ -46,8 +46,32 @@
       const 외래시트 = XLSX.utils.sheet_to_json(외래WB.Sheets[외래WB.SheetNames[0]], { header: 1 });
       const 수납시트 = XLSX.utils.sheet_to_json(수납WB.Sheets[수납WB.SheetNames[0]], { header: 1 });
 
-      const 연령값들 = 외래시트.map(row => parseInt(row[4])).filter(age => !isNaN(age));
-      const 수납값들 = 수납시트.map(row => parseInt((row[12] || '').toString().replace(/,/g, ''))).filter(v => !isNaN(v));
+      const getAgeFromID = (id) => {
+        if (!id || typeof id !== 'string') return NaN;
+        const parts = id.replace(/[^0-9]/g, '');
+        if (parts.length < 7) return NaN;
+        const birthYear = parseInt(parts.substring(0, 2), 10);
+        const birthMonth = parseInt(parts.substring(2, 4), 10);
+        const birthDay = parseInt(parts.substring(4, 6), 10);
+        const centuryCode = parseInt(parts[6], 10);
+
+        let fullYear = 1900 + birthYear;
+        if (centuryCode === 3 || centuryCode === 4 || centuryCode === 7 || centuryCode === 8) {
+          fullYear = 2000 + birthYear;
+        }
+
+        const today = new Date();
+        let age = today.getFullYear() - fullYear;
+        return age;
+      };
+
+      const 연령값들 = 외래시트.map(row => getAgeFromID(row[4])).filter(age => !isNaN(age));
+      const 수납값들 = 수납시트.map(row => {
+        const raw = row[12];
+        if (typeof raw === 'number') return raw;
+        if (typeof raw === 'string') return parseInt(raw.replace(/[^\d]/g, ''));
+        return NaN;
+      }).filter(v => !isNaN(v));
 
       const 연령대인원수 = { '10대': 0, '20대': 0, '30대': 0, '40대': 0, '50대': 0, '60대': 0, '70대': 0, '80대': 0 };
       연령값들.forEach(age => {
