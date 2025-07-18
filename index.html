@@ -41,7 +41,11 @@
       const worksheet = workbook.Sheets[sheetName];
       const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
       filesData[key] = jsonData;
-      if (filesData.naewon && filesData.oerae && filesData.daily) {
+      if (
+        filesData.naewon && Array.isArray(filesData.naewon) && filesData.naewon.length > 1 &&
+        filesData.oerae && Array.isArray(filesData.oerae) && filesData.oerae.length > 1 &&
+        filesData.daily && Array.isArray(filesData.daily) && filesData.daily.length > 1
+      ) {
         document.getElementById('btnProcess').disabled = false;
       }
     };
