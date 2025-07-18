@@ -1,118 +1,32 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <title>연령별 수납액 통계</title>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
-    h2 { color: #2c3e50; }
-    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
-    th { background-color: #f4f4f4; }
-  </style>
+<meta charset="UTF-8" />
+<title>외래 통계 자동 계산 도구</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; max-width: 900px; }
+  h1 { color: #2c3e50; }
+  label { display: block; margin-top: 15px; }
+  table { border-collapse: collapse; margin-top: 20px; width: 100%; }
+  th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: center; }
+  th { background-color: #f4f4f4; }
+  #results { margin-top: 30px; }
+</style>
 </head>
 <body>
-  <h2>연령별 수납액 통계</h2>
-  <p>엑셀 파일 2개를 업로드하세요: <strong>외래환자.xlsx, 일일집계.xlsx</strong></p>
-  <input type="file" id="file1" accept=".xlsx" /> ← 외래환자.xlsx<br>
-  <input type="file" id="file2" accept=".xlsx" /> ← 일일집계.xlsx<br>
-  <button id="process">통계 생성</button>
+  <h1>외래 통계 자동 계산 도구</h1>
+  <p>아래 3개 엑셀 파일을 업로드해 주세요.</p>
+  <label>내원경로.xlsx: <input type="file" id="fileNaewon" accept=".xlsx,.xls" /></label>
+  <label>외래환자.xlsx: <input type="file" id="fileOerae" accept=".xlsx,.xls" /></label>
+  <label>일일집계.xlsx: <input type="file" id="fileDaily" accept=".xlsx,.xls" /></label>
 
-  <table id="resultTable" style="display:none">
-    <thead>
-      <tr>
-        <th>연령대</th>
-        <th>총 수납액</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+  <button id="btnProcess" disabled>통계 계산 시작</button>
+
+  <div id="results"></div>
 
 <script>
-  function extractAgeFromRRN(rrn, 기준일) {
-    if (!/^[0-9]{7,}/.test(rrn)) return null;
-    const yy = parseInt(rrn.slice(0, 2), 10);
-    const mm = parseInt(rrn.slice(2, 4), 10);
-    const dd = parseInt(rrn.slice(4, 6), 10);
-    const sexCode = rrn[6];
-    if (isNaN(yy) || isNaN(mm) || isNaN(dd) || !sexCode) return null;
-
-    const yearPrefix = (sexCode === '1' || sexCode === '2') ? 1900 : 2000;
-    const birthDate = new Date(yearPrefix + yy, mm - 1, dd);
-    const 기준 = new Date(기준일);
-    let age = 기준.getFullYear() - birthDate.getFullYear();
-    if (
-      기준.getMonth() < birthDate.getMonth() ||
-      (기준.getMonth() === birthDate.getMonth() && 기준.getDate() < birthDate.getDate())
-    ) {
-      age--;
-    }
-    return age;
-  }
-
-  document.getElementById('process').addEventListener('click', function() {
-    const 외래파일 = document.getElementById('file1').files[0];
-    const 수납파일 = document.getElementById('file2').files[0];
-
-    if (!외래파일 || !수납파일) {
-      alert("2개의 파일을 모두 업로드해주세요.");
-      return;
-    }
-
-    Promise.all([
-      외래파일.arrayBuffer().then(buf => XLSX.read(new Uint8Array(buf), { type: 'array' })),
-      수납파일.arrayBuffer().then(buf => XLSX.read(new Uint8Array(buf), { type: 'array' }))
-    ]).then(([외래WB, 수납WB]) => {
-      const 외래시트 = XLSX.utils.sheet_to_json(외래WB.Sheets[외래WB.SheetNames[0]], { header: 1 });
-      const 수납시트 = XLSX.utils.sheet_to_json(수납WB.Sheets[수납WB.SheetNames[0]], { header: 1 });
-
-      const 기준일 = new Date();
-      const 연령별수납액 = { '10대': 0, '20대': 0, '30대': 0, '40대': 0, '50대': 0, '60대': 0, '70대': 0, '80대': 0 };
-
-      // 수납 데이터 Map 만들기: key는 진료일자+이름+생년월일, value는 수납액
-      const 수납Map = new Map();
-      for (let i = 0; i < 수납시트.length; i++) {
-        const row = 수납시트[i];
-        const rrn = row[1]; // B열: 주민번호 앞자리
-        const 수납액 = parseInt((row[12] || '').toString().replace(/,/g, '')) || 0;
-        if (!rrn || 수납액 === 0) continue;
-        수납Map.set(rrn.toString().slice(0, 6), 수납액);
-      }
-
-      for (let i = 0; i < 외래시트.length; i++) {
-        const row = 외래시트[i];
-        const rrn = row[1]; // B열 = 주민등록번호
-        const age = extractAgeFromRRN(rrn?.toString(), 기준일);
-        if (age === null || isNaN(age)) continue;
-
-        let ageGroup = '';
-        if (age < 20) ageGroup = '10대';
-        else if (age < 30) ageGroup = '20대';
-        else if (age < 40) ageGroup = '30대';
-        else if (age < 50) ageGroup = '40대';
-        else if (age < 60) ageGroup = '50대';
-        else if (age < 70) ageGroup = '60대';
-        else if (age < 80) ageGroup = '70대';
-        else ageGroup = '80대';
-
-        const snKey = rrn?.toString().slice(0, 6);
-        const 수납액 = 수납Map.get(snKey) || 0;
-        연령별수납액[ageGroup] += 수납액;
-      }
-
-      const tbody = document.querySelector('#resultTable tbody');
-      tbody.innerHTML = '';
-      let total = 0;
-      Object.entries(연령별수납액).forEach(([연령대, 금액]) => {
-        total += 금액;
-        const row = `<tr><td>${연령대}</td><td>${금액.toLocaleString()}</td></tr>`;
-        tbody.insertAdjacentHTML('beforeend', row);
-      });
-      tbody.insertAdjacentHTML('beforeend', `<tr style="font-weight:bold"><td>합계</td><td>${total.toLocaleString()}</td></tr>`);
-      document.getElementById('resultTable').style.display = 'table';
-    });
-  });
+  // JavaScript 코드 이곳에 작성 예정
 </script>
 
 </body>
