@@ -104,12 +104,8 @@
       row.forEach(cell => html += `<td>${cell}</td>`);
       html += '</tr>';
     });
-    html += '</tbody></table></div>`;
+    html += '</tbody></table></div>';
     return html;
-  }
-
-  function sumRow(row) {
-    return row.reduce((a,b) => a + (typeof b === 'number' ? b : 0), 0);
   }
 
   document.getElementById('btnProcess').addEventListener('click', () => {
@@ -182,8 +178,8 @@
     }
 
     // 저장2: 신환 기준 최초 내원 수납액 및 총 매출 계산
-    const firstPayMap = new Map(); // 차트번호 -> 최초 수납액
-    const totalPayMap = new Map(); // 차트번호 -> 총 매출액
+    const firstPayMap = new Map();
+    const totalPayMap = new Map();
     dailyMap.forEach((d, chartNum) => {
       if(!payMap.has(chartNum)) return;
       if(d.patientType === '신환' || d.patientType === '90일초진') {
@@ -193,7 +189,6 @@
       totalPayMap.set(chartNum, (totalPayMap.get(chartNum) || 0) + (payMap.get(chartNum) || 0));
     });
 
-    // 환자별 신환 수납액 및 총 매출 집계
     const stat2 = {};
     firstPayMap.forEach((pay, chartNum) => {
       const route = naewonMap.get(chartNum) || '무응답';
@@ -236,7 +231,7 @@
     }
 
     // 저장4: 환자구분별 남여 인원수 (중복 차트번호 1회 집계)
-    const patientMap = new Map(); // 차트번호 -> { 환자구분, 성별 }
+    const patientMap = new Map();
     dailyMap.forEach((d, chartNum) => {
       const gender = getGender(d.jumin);
       const patientType = d.patientType;
